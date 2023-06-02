@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Control Object with Pose</title>
+  <style>
+    #game-container {
+      position: relative;
+      width: 500px;
+      height: 200px;
+      margin: 0 auto;
+    }
+
+    #car {
+      position: absolute;
+      left: 50%;
+      bottom: 10px;
+      transform: translateX(-50%);
+      width: 50px;
+      height: 30px;
+      background-color: red;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Control Object with Pose</h1>
+  <div id="game-container">
+    <div id="car"></div>
+  </div>
+  <div><canvas id="canvas"></canvas></div>
+  <div id="label-container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+  <script>
+    const URL = 'https://teachablemachine.withgoogle.com/models/f96XWnZEw/';
+    let model, webcam, ctx, labelContainer, maxPredictions;
+
+    async function init() {
+      const modelURL = URL + "model.json";
+      const metadataURL = URL + "metadata.json";
+
+      // load the model and metadata
+      model = await tmPose.load(modelURL, metadataURL);
+      maxPredictions = model.getTotalClasses();
+
+      // Convenience function to setup a webcam
+      const size = 200;
+      const flip = true; // whether to flip the webcam
+      webcam = new tmPose.Webcam(size, size, flip); // width, height, flip
+      await webcam.setup(); // request access to the webcam
+      await webcam.play();
+      window.requestAnimationFrame(loop);
+
+      // append/get elements to the DOM
+      const canvas = document.getElementById("canvas");
+      canvas.width = size; canvas.height = size;
+      ctx = canvas.getContext("2d");
+      labelContainer = document.getElementById("label-container");
+      for (let i = 0; i < maxPredictions; i++) { // and class labels
+        labelContainer.appendChild(document.createElement("div"));
+      }
+    }
+
+    async function loop(timestamp) {
+      webcam.update(); // update the webcam frame
+      await predict();
+      window.requestAnimationFrame(loop);
+    }
+
+    function holdLeftKey() {
+      const car = document.getElementById("car");
+      const leftPosition = parseInt(car.style.left) || 0;
+      car.style.left = leftPosition - 5 + "px";
+      holdLeftKey.timerId = setTimeout(holdLeftKey, 10);
+    }
+
+    function releaseLeftKey() {
+      clearTimeout(holdLeftKey.timerId);
+    }
+
+    function holdRightKey() {
+      const car = document.getElementById("car");
+      const rightPosition = parseInt(car.style.left) || 0;
+      car.style.left = rightPosition + 5 + "px";
+      holdRightKey.timerId = setTimeout(holdRightKey, 10);
+    }
+
+    function releaseRightKey() {
+      clearTimeout(holdRightKey.timerId);
+    }
+
+    let isLeftKeyPressed = false;
+    let isRightKeyPressed = false;
+
+    async function predict() {
+      const {pose, posenetOutput} = await model.estimatePose(webcam.canvas);
+      const prediction = await model.predict(posenetOutput);
+      const maxProbabilityIndex = prediction.reduce((iMax, x, i, arr) => (x.probability > arr[iMax].probability ? i : iMax), 0);
+
+      if (prediction[maxProbabilityIndex].className === 'left') {
+        if (!isLeftKeyPressed) {
+          holdLeftKey();
+          isLeftKeyPressed = true;
+        }
+      } else {
+        if (isLeftKeyPressed) {
+          releaseLeftKey();
+          isLeftKeyPressed = false;
+        }
+      }
+
+      if (prediction[maxProbabilityIndex].className === 'right') {
+        if (!isRightKeyPressed) {
+          holdRightKey();
+          isRightKeyPressed = true;
+        }
+      } else {
+        if (isRightKeyPressed) {
+          releaseRightKey();
+          isRightKeyPressed = false;
+        }
+      }
+
+      for (let i = 0; i < maxPredictions; i++) {
+        const classPrediction =
+          prediction[i].className + ": " + prediction[i].probability.toFixed(2);
+        labelContainer.childNodes[i].innerHTML = classPrediction;
+      }
+
+      drawPose(pose);
+    }
+
+    function drawPose(pose) {
+      if (webcam.canvas) {
+        ctx.drawImage(webcam.canvas, 0, 0);
+        if (pose) {
+          const minPartConfidence = 0.5;
+          tmPose.drawKeypoints(pose.keypoints, minPartConfidence, ctx);
+          tmPose.drawSkeleton(pose.keypoints, minPartConfidence, ctx);
+        }
+      }
+    }
+  </script>
+
+  <script>
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'ArrowLeft') {
+        holdLeftKey();
+      } else if (event.key === 'ArrowRight') {
+        holdRightKey();
+      }
+    });
+
+    document.addEventListener('keyup', function (event) {
+      if (event.key === 'ArrowLeft') {
+        releaseLeftKey();
+      } else if (event.key === 'ArrowRight') {
+        releaseRightKey();
+      }
+    });
+  </script>
+
+  <button type="button" onclick="init()">Start</button>
+</body>
+
+</html>
